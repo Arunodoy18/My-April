@@ -63,14 +63,43 @@ APRIL'S VOICE:
 - Deterministic
 """
 
+"""
+DAY 7 INTEGRATION — CONFIRMATION FLOW
+
+Add a confirmation mechanism.
+
+FLOW:
+1. When an intent is detected:
+   - Ask policy engine for action policy
+2. If policy == SAFE:
+   - Execute immediately
+3. If policy == CONFIRM_REQUIRED:
+   - Ask user for confirmation
+   - Store pending action in memory
+4. If user replies "yes":
+   - Execute stored action
+5. If user replies "no":
+   - Discard action and respond politely
+
+RULES:
+- Only one pending action at a time
+- Confirmation is session-scoped
+- Do NOT persist pending actions
+- Do NOT break existing commands
+"""
+
 """Entry point for APRIL day-1 command execution backbone."""
 
 import sys
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 
 from cognition.intent import parse_intent
+from core.policy import classify_action, get_confirmation_message
 
 _ALLOWED_APP_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-.")
+
+# Confirmation state - session scoped, not persisted
+_pending_action = None  # type: Optional[Dict[str, Any]]
 
 
 def _print_april(message: str) -> None:
@@ -127,8 +156,82 @@ def _handle_open_with_category(app_name: str, category: str) -> None:
         _print_april(f"opening {app_name}.")
 
 
+def _execute_action(intent_name: str, payload: Dict[str, Any]) -> None:
+    """Execute a confirmed action based on intent type."""
+    if intent_name == "DANGEROUS_ACTION":
+        _print_april("Confirmed. This action is not implemented yet.")
+        return
+    
+    if intent_name == "LEARN_PREFERENCE":
+        if isinstance(payload, dict):
+            category = payload.get("category", "").strip().lower()
+            app = payload.get("app", "").strip().lower()
+            if category and app:
+                try:
+                    from memory.preferences import set_preference
+                    set_preference(category, app)
+                    _print_april(f"Okay. I'll use {app} as your {category} from now on.")
+                except Exception:
+                    _print_april("I couldn't learn that preference.")
+            else:
+                _print_april("I need both an app and category to learn.")
+        else:
+            _print_april("I couldn't understand that preference.")
+
+    elif intent_name == "OPEN_APP":
+        if isinstance(payload, dict):
+            app_name = payload.get("app", "").strip().lower()
+            category = payload.get("category", "").strip().lower()
+            
+            # If this is a direct category lookup, resolve it
+            if not category and app_name in {"browser", "editor"}:
+                try:
+                    from memory.preferences import get_preference
+                    resolved_app = get_preference(app_name)
+                    if resolved_app:
+                        _handle_open_with_category(resolved_app, app_name)
+                    else:
+                        _print_april(f"I don't have a {app_name} configured.")
+                except Exception:
+                    _print_april("preference lookup failed safely.")
+            else:
+                _handle_open_with_category(app_name, category)
+        else:
+            _handle_open("")
+    else:
+        _print_april("I can't do that yet.")
+
+
+def _handle_confirmation_response(response: str) -> None:
+    """Handle yes/no confirmation responses."""
+    global _pending_action
+    
+    response_lower = response.strip().lower()
+    
+    if response_lower in {"yes", "y", "ok", "okay", "sure", "confirm"}:
+        if _pending_action:
+            intent_name = _pending_action.get("intent_name")
+            payload = _pending_action.get("payload", {})
+            _pending_action = None  # Clear pending action
+            _execute_action(intent_name, payload)
+        else:
+            _print_april("I don't have anything to confirm.")
+    elif response_lower in {"no", "n", "cancel", "never mind", "nevermind"}:
+        if _pending_action:
+            _pending_action = None  # Clear pending action
+            _print_april("Okay. I won't do that.")
+        else:
+            _print_april("I don't have anything to cancel.")
+    else:
+        if _pending_action:
+            _print_april("Please answer yes or no.")
+        else:
+            _print_april("I can't do that yet.")
+
+
 def _loop() -> None:
     """Main command loop handling user input and routing."""
+    global _pending_action
     _print_april("online. ready.")
 
     while True:
@@ -153,74 +256,42 @@ def _loop() -> None:
 
         intent_name, payload = parse_intent(command)
 
-        """
-        DAY 4 INTEGRATION — LIVE LEARNING
-
-        Handle new intent: LEARN_PREFERENCE
-
-        Flow:
-        1. Extract category and app from payload
-        2. Call memory.preferences.set_preference(category, app)
-        3. Respond as APRIL acknowledging learning
-        4. Do NOT call open_app here
-
-        Example response:
-        "Okay. I'll use Firefox as your browser from now on."
-
-        Rules:
-        - Do not restart APRIL
-        - Preference must apply immediately
-        - Preserve Day 1–3 behavior
-        """
-
-        if intent_name == "LEARN_PREFERENCE":
-            if isinstance(payload, dict):
-                category = payload.get("category", "").strip().lower()
-                app = payload.get("app", "").strip().lower()
-                if category and app:
-                    try:
-                        from memory.preferences import set_preference
-                        set_preference(category, app)
-                        _print_april(f"Okay. I'll use {app} as your {category} from now on.")
-                    except Exception:
-                        _print_april("I couldn't learn that preference.")
-                else:
-                    _print_april("I need both an app and category to learn.")
-            else:
-                _print_april("I couldn't understand that preference.")
+        # Handle confirmation responses first
+        if _pending_action is not None:
+            _handle_confirmation_response(command)
             continue
 
-        if intent_name == "OPEN_APP":
-            if isinstance(payload, dict):
-                app_name = payload.get("app", "").strip().lower()
-                category = payload.get("category", "").strip().lower()
-                
-                # If this is a direct category lookup, resolve it
-                if not category and app_name in {"browser", "editor"}:
-                    try:
-                        from memory.preferences import get_preference
-                        resolved_app = get_preference(app_name)
-                        if resolved_app:
-                            _handle_open_with_category(resolved_app, app_name)
-                        else:
-                            _print_april(f"I don't have a {app_name} configured.")
-                    except Exception:
-                        _print_april("preference lookup failed safely.")
-                else:
-                    _handle_open_with_category(app_name, category)
-            else:
-                _handle_open("")
+        # No intent detected
+        if not intent_name:
+            _print_april("I can't do that yet.")
             continue
 
-        _print_april("I can't do that yet.")
+        # Check action policy
+        policy = classify_action(intent_name, payload)
+        
+        if policy == "SAFE":
+            # Execute immediately
+            _execute_action(intent_name, payload)
+        elif policy == "CONFIRM_REQUIRED":
+            # Store action and ask for confirmation
+            _pending_action = {
+                "intent_name": intent_name,
+                "payload": payload
+            }
+            confirmation_msg = get_confirmation_message(intent_name, payload)
+            _print_april(confirmation_msg)
+        else:
+            _print_april("I couldn't evaluate that action.")
+
+        continue
 
 
 def main() -> None:
     """Protect the main loop against unexpected faults."""
     try:
         _loop()
-    except Exception:
-        _print_april("critical fault. standing down.")
+    except Exception as e:
+        _print_april(f"critical fault: {e}. standing down.")
         sys.exit(1)
 
 

@@ -82,6 +82,18 @@ IntentResult = Tuple[Optional[str], Dict[str, str]]
 
 _OPEN_VERBS: Tuple[str, ...] = ("open", "launch", "start")
 _LEARN_VERBS: Tuple[str, ...] = ("use", "set")
+_DANGEROUS_KEYWORDS: Tuple[str, ...] = (
+	"delete",
+	"remove",
+	"shutdown",
+	"restart",
+	"kill",
+	"close all",
+	"terminate",
+	"destroy",
+	"wipe",
+	"erase",
+)
 _FILLER_WORDS: Tuple[str, ...] = (
 	"please",
 	"can",
@@ -93,6 +105,19 @@ _FILLER_WORDS: Tuple[str, ...] = (
 	"would",
 	"mind",
 )
+
+def _detect_dangerous_action(raw_text: str) -> Optional[IntentResult]:
+	"""Detect commands with dangerous keywords for confirmation."""
+	if not raw_text:
+		return None
+	
+	text_lower = raw_text.lower()
+	for keyword in _DANGEROUS_KEYWORDS:
+		if keyword in text_lower:
+			return "DANGEROUS_ACTION", {"raw": raw_text}
+	
+	return None
+
 
 def _detect_learn_preference(tokens: Tuple[str, ...]) -> Optional[IntentResult]:
 	"""Detect LEARN_PREFERENCE intent and extract category/app payload."""
@@ -199,7 +224,12 @@ def parse_intent(raw_text: str) -> IntentResult:
 	if not filtered_tokens:
 		return None, {}
 
-	# Try LEARN_PREFERENCE intent first
+	# Check for dangerous actions first (before parsing)
+	dangerous_intent = _detect_dangerous_action(raw_text)
+	if dangerous_intent is not None:
+		return dangerous_intent
+
+	# Try LEARN_PREFERENCE intent
 	learn_intent = _detect_learn_preference(filtered_tokens)
 	if learn_intent is not None:
 		return learn_intent
