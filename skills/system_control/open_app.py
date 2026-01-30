@@ -98,6 +98,14 @@ _ALLOWED_APPS: dict[str, AppEntry] = {
 			"msedge.exe",
 		),
 	},
+	"microsoft edge": {
+		"label": "Microsoft Edge",
+		"candidates": (
+			r"C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+			r"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+			"msedge.exe",
+		),
+	},
 	"code": {
 		"label": "Visual Studio Code",
 		"candidates": (

@@ -1,65 +1,51 @@
 """
-PROJECT: APRIL
+DAY 4 STABILIZATION — PREFERENCES MODULE
 
-MODULE: User Preferences Memory
-
-GOAL:
-- Store and retrieve user-specific defaults
-- Keep it simple and local
-- No databases, no cloud
-
-RESPONSIBILITIES:
-- Get preferred application for a category (editor, browser)
-- Set preferred application explicitly
-- Provide safe defaults if not set
-
-EXAMPLE:
-get_preference("editor") -> "code"
-get_preference("browser") -> "chrome"
+You are fixing APRIL's preference memory module.
 
 REQUIREMENTS:
-- Use an in-memory dict for now
-- Easy to upgrade to disk later
-- Never raise exceptions
+- Remove or relocate any `from __future__ import annotations`
+- Ensure no SyntaxError can occur
+- Use a single in-memory dictionary
+- Keys must be lowercase ("browser", "editor")
 
-STYLE:
-- Clean
-- Explicit
-- Minimal
+IMPLEMENT EXACTLY:
+- get_preference(key: str) -> str | None
+- set_preference(key: str, value: str) -> None
+
+RULES:
+- Normalize keys using key.strip().lower()
+- Never raise exceptions
+- Do not validate app existence
+- Keep file minimal
 """
 
-from __future__ import annotations
-
-from typing import Dict
-
-_DEFAULTS: Dict[str, str] = {
-	"editor": "code",
-	"browser": "chrome",
+_preferences = {
+    "editor": "code",
+    "browser": "chrome",
 }
 
-_preferences: Dict[str, str] = {}
+
+def get_preference(key: str) -> str:
+    """Return the configured preference for a category."""
+    if not isinstance(key, str):
+        return ""
+    
+    normalized_key = key.strip().lower()
+    if not normalized_key:
+        return ""
+    
+    return _preferences.get(normalized_key, "")
 
 
-def get_preference(category: str) -> str:
-	"""Return the configured preference or a safe default."""
-	if not isinstance(category, str):
-		return ""
-
-	key = category.strip().lower()
-	if not key:
-		return ""
-
-	return _preferences.get(key, _DEFAULTS.get(key, ""))
-
-
-def set_preference(category: str, value: str) -> None:
-	"""Persist a preference value safely in memory."""
-	if not isinstance(category, str) or not isinstance(value, str):
-		return
-
-	key = category.strip().lower()
-	val = value.strip().lower()
-	if not key or not val:
-		return
-
-	_preferences[key] = val
+def set_preference(key: str, value: str) -> None:
+    """Update a preference value in the in-memory store."""
+    if not isinstance(key, str) or not isinstance(value, str):
+        return
+    
+    normalized_key = key.strip().lower()
+    normalized_value = value.strip().lower()
+    if not normalized_key or not normalized_value:
+        return
+    
+    _preferences[normalized_key] = normalized_value

@@ -12,6 +12,57 @@ Flow:
 Do NOT change skill implementations.
 Do NOT break Day-1 behavior.
 """
+"""
+DAY 4 STABILIZATION — FIX ALL CURRENT ISSUES
+
+You are stabilizing APRIL's learning and preference system.
+
+PROBLEMS TO FIX:
+1. Preferences sometimes fail to resolve (e.g., "open browser" after setting browser)
+2. Category keys ("browser", "editor") are inconsistently normalized
+3. Preference resolution must be deterministic and reliable
+4. Do NOT break any Day 1–4 functionality
+
+MANDATORY FIXES:
+
+A. CATEGORY NORMALIZATION
+- Whenever reading or writing a preference category:
+  - category = category.strip().lower()
+- This must be applied consistently in ALL paths
+
+B. PREFERENCE RESOLUTION FLOW (OPEN_APP)
+When handling OPEN_APP intent:
+1. Read payload["app"]
+2. Normalize it
+3. If app is "browser" or "editor":
+   - Resolve via memory.preferences.get_preference(app)
+4. If resolution returns None:
+   - Respond: "I don't have a <category> configured."
+   - Do NOT call open_app
+5. If resolved:
+   - Call open_app(resolved_app)
+
+C. LEARN_PREFERENCE FLOW
+When handling LEARN_PREFERENCE intent:
+1. Normalize category
+2. Call set_preference(category, app)
+3. Confirm learning using APRIL voice
+4. Do NOT validate app existence here
+
+STRICT RULES:
+- Do NOT modify open_app.py
+- Do NOT add new intents
+- Do NOT add persistence yet
+- Do NOT add multi-word parsing
+- Keep logic small and explicit
+- Preserve all existing tests and behaviors
+
+APRIL'S VOICE:
+- Calm
+- Acknowledging
+- Deterministic
+"""
+
 """Entry point for APRIL day-1 command execution backbone."""
 
 import sys
@@ -102,11 +153,61 @@ def _loop() -> None:
 
         intent_name, payload = parse_intent(command)
 
+        """
+        DAY 4 INTEGRATION — LIVE LEARNING
+
+        Handle new intent: LEARN_PREFERENCE
+
+        Flow:
+        1. Extract category and app from payload
+        2. Call memory.preferences.set_preference(category, app)
+        3. Respond as APRIL acknowledging learning
+        4. Do NOT call open_app here
+
+        Example response:
+        "Okay. I'll use Firefox as your browser from now on."
+
+        Rules:
+        - Do not restart APRIL
+        - Preference must apply immediately
+        - Preserve Day 1–3 behavior
+        """
+
+        if intent_name == "LEARN_PREFERENCE":
+            if isinstance(payload, dict):
+                category = payload.get("category", "").strip().lower()
+                app = payload.get("app", "").strip().lower()
+                if category and app:
+                    try:
+                        from memory.preferences import set_preference
+                        set_preference(category, app)
+                        _print_april(f"Okay. I'll use {app} as your {category} from now on.")
+                    except Exception:
+                        _print_april("I couldn't learn that preference.")
+                else:
+                    _print_april("I need both an app and category to learn.")
+            else:
+                _print_april("I couldn't understand that preference.")
+            continue
+
         if intent_name == "OPEN_APP":
             if isinstance(payload, dict):
-                app_name = payload.get("app", "")
-                category = payload.get("category", "")
-                _handle_open_with_category(app_name, category)
+                app_name = payload.get("app", "").strip().lower()
+                category = payload.get("category", "").strip().lower()
+                
+                # If this is a direct category lookup, resolve it
+                if not category and app_name in {"browser", "editor"}:
+                    try:
+                        from memory.preferences import get_preference
+                        resolved_app = get_preference(app_name)
+                        if resolved_app:
+                            _handle_open_with_category(resolved_app, app_name)
+                        else:
+                            _print_april(f"I don't have a {app_name} configured.")
+                    except Exception:
+                        _print_april("preference lookup failed safely.")
+                else:
+                    _handle_open_with_category(app_name, category)
             else:
                 _handle_open("")
             continue
