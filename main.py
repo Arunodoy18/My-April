@@ -95,16 +95,34 @@ from typing import Optional, Callable, Dict, Any
 
 from cognition.intent import parse_intent
 from core.policy import classify_action, get_confirmation_message
+from core.personality import (
+    detect_gratitude,
+    detect_social_phrase,
+    get_social_response,
+    apply_tone,
+    set_emotional_state,
+)
+from memory.action_history import record_action, detect_pattern
 
 _ALLOWED_APP_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-.")
 
 # Confirmation state - session scoped, not persisted
 _pending_action = None  # type: Optional[Dict[str, Any]]
 
+# Suggestion state - session scoped, not persisted
+_suggested_action = None  # type: Optional[Dict[str, Any]]
+
 
 def _print_april(message: str) -> None:
-    """Emit a response in APRIL's required voice."""
-    print(f"APRIL: {message}")
+    """Emit a response in APRIL's required voice with emotional tone."""
+    toned_message = apply_tone(message, context="")
+    print(f"APRIL: {toned_message}")
+
+
+def _print_april_with_context(message: str, context: str) -> None:
+    """Emit a response with specific emotional context."""
+    toned_message = apply_tone(message, context=context)
+    print(f"APRIL: {toned_message}")
 
 
 def _sanitize_app_name(raw: str) -> Optional[str]:
@@ -158,6 +176,8 @@ def _handle_open_with_category(app_name: str, category: str) -> None:
 
 def _execute_action(intent_name: str, payload: Dict[str, Any]) -> None:
     """Execute a confirmed action based on intent type."""
+    global _suggested_action
+    
     if intent_name == "DANGEROUS_ACTION":
         _print_april("Confirmed. This action is not implemented yet.")
         return
@@ -190,12 +210,39 @@ def _execute_action(intent_name: str, payload: Dict[str, Any]) -> None:
                     resolved_app = get_preference(app_name)
                     if resolved_app:
                         _handle_open_with_category(resolved_app, app_name)
+                        # Record this action for pattern detection
+                        action_sig = f"open {app_name}"
+                        record_action(action_sig)
+                        # Check for patterns
+                        suggested_next = detect_pattern(action_sig)
+                        if suggested_next and not _suggested_action:
+                            # Parse the suggested action
+                            _suggested_action = {
+                                "intent_name": "OPEN_APP",
+                                "payload": {"app": suggested_next.replace("open ", "")}
+                            }
+                            _print_april(f"You usually {suggested_next} after this. Want me to do that now?")
                     else:
                         _print_april(f"I don't have a {app_name} configured.")
                 except Exception:
                     _print_april("preference lookup failed safely.")
             else:
                 _handle_open_with_category(app_name, category)
+                # Record this action for pattern detection
+                if category:
+                    action_sig = f"open {category}"
+                else:
+                    action_sig = f"open {app_name}"
+                record_action(action_sig)
+                # Check for patterns
+                suggested_next = detect_pattern(action_sig)
+                if suggested_next and not _suggested_action:
+                    # Parse the suggested action
+                    _suggested_action = {
+                        "intent_name": "OPEN_APP",
+                        "payload": {"app": suggested_next.replace("open ", "")}
+                    }
+                    _print_april(f"You usually {suggested_next} after this. Want me to do that now?")
         else:
             _handle_open("")
     else:
@@ -229,9 +276,36 @@ def _handle_confirmation_response(response: str) -> None:
             _print_april("I can't do that yet.")
 
 
+def _handle_suggestion_response(response: str) -> None:
+    """Handle yes/no suggestion responses."""
+    global _suggested_action
+    
+    response_lower = response.strip().lower()
+    
+    if response_lower in {"yes", "y", "ok", "okay", "sure"}:
+        if _suggested_action:
+            intent_name = _suggested_action.get("intent_name")
+            payload = _suggested_action.get("payload", {})
+            _suggested_action = None  # Clear suggestion
+            _execute_action(intent_name, payload)
+        else:
+            _print_april("I don't have anything to suggest.")
+    elif response_lower in {"no", "n", "not now", "nope"}:
+        if _suggested_action:
+            _suggested_action = None  # Clear suggestion
+            _print_april("Alright.")
+        else:
+            _print_april("Alright.")
+    else:
+        if _suggested_action:
+            _print_april("Please answer yes or no.")
+        else:
+            _print_april("I can't do that yet.")
+
+
 def _loop() -> None:
     """Main command loop handling user input and routing."""
-    global _pending_action
+    global _pending_action, _suggested_action
     _print_april("online. ready.")
 
     while True:
@@ -254,9 +328,32 @@ def _loop() -> None:
             _print_april("shutting down.")
             break
 
+        # Detect social phrases (greetings, farewells, positive feedback)
+        is_social, phrase_type = detect_social_phrase(command)
+        if is_social:
+            if phrase_type == "greeting":
+                set_emotional_state("calm")
+            elif phrase_type == "positive":
+                set_emotional_state("friendly")
+            
+            response = get_social_response(phrase_type)
+            _print_april(response)
+            continue
+
+        # Detect gratitude and respond warmly
+        if detect_gratitude(command):
+            set_emotional_state("friendly")
+            _print_april_with_context("", "gratitude_response")
+            continue
+
         intent_name, payload = parse_intent(command)
 
-        # Handle confirmation responses first
+        # Handle suggestion responses first (higher priority)
+        if _suggested_action is not None:
+            _handle_suggestion_response(command)
+            continue
+
+        # Handle confirmation responses
         if _pending_action is not None:
             _handle_confirmation_response(command)
             continue
