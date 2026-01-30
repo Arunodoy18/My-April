@@ -3,6 +3,8 @@
 import sys
 from typing import Optional, Callable
 
+from cognition.intent import parse_intent
+
 _ALLOWED_APP_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-.")
 
 
@@ -76,12 +78,11 @@ def _loop() -> None:
             _print_april("shutting down.")
             break
 
-        if lowered.startswith("open"):
-            remainder = command[4:]
-            if remainder and not remainder[0].isspace():
-                _print_april("I can't do that yet.")
-                continue
-            _handle_open(remainder.strip())
+        intent_name, payload = parse_intent(command)
+
+        if intent_name == "OPEN_APP":
+            app_name = payload.get("app", "") if isinstance(payload, dict) else ""
+            _handle_open(app_name)
             continue
 
         _print_april("I can't do that yet.")
