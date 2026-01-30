@@ -1,3 +1,17 @@
+"""
+DAY 2 INTEGRATION INSTRUCTION:
+
+Integrate cognition.intent.detect_intent into the command flow.
+
+Flow:
+1. Receive raw user input
+2. Send it to detect_intent
+3. If intent == OPEN_APP → route to open_app skill
+4. If intent is None → respond politely
+
+Do NOT change skill implementations.
+Do NOT break Day-1 behavior.
+"""
 """Entry point for APRIL day-1 command execution backbone."""
 
 import sys
@@ -29,6 +43,14 @@ def _handle_open(command_body: str) -> None:
     if app_name is None:
         _print_april("need a plain app name.")
         return
+    _handle_open_with_category(app_name, "")
+
+
+def _handle_open_with_category(app_name: str, category: str) -> None:
+    """Route the open command with optional category context."""
+    if not app_name:
+        _print_april("need an application name.")
+        return
 
     try:
         from skills.system_control import open_app  # type: ignore
@@ -36,14 +58,14 @@ def _handle_open(command_body: str) -> None:
         _print_april("open skill offline.")
         return
 
-    open_application: Optional[Callable[[str], Optional[str]]]
+    open_application: Optional[Callable[[str, str], Optional[str]]]
     open_application = getattr(open_app, "open_application", None)
     if not callable(open_application):
         _print_april("open skill incomplete.")
         return
 
     try:
-        message = open_application(app_name)
+        message = open_application(app_name, category)
     except Exception:
         _print_april("open failed safely.")
         return
@@ -81,8 +103,12 @@ def _loop() -> None:
         intent_name, payload = parse_intent(command)
 
         if intent_name == "OPEN_APP":
-            app_name = payload.get("app", "") if isinstance(payload, dict) else ""
-            _handle_open(app_name)
+            if isinstance(payload, dict):
+                app_name = payload.get("app", "")
+                category = payload.get("category", "")
+                _handle_open_with_category(app_name, category)
+            else:
+                _handle_open("")
             continue
 
         _print_april("I can't do that yet.")

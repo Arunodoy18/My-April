@@ -129,7 +129,7 @@ def _resolve_executable(options: Sequence[str]) -> Optional[str]:
 	return None
 
 
-def open_application(app_name: str) -> str:
+def open_application(app_name: str, category: str = "") -> str:
 	"""Open a whitelisted application by name and return APRIL's spoken status."""
 	if not isinstance(app_name, str):
 		return "I couldn't find that application."
@@ -140,17 +140,25 @@ def open_application(app_name: str) -> str:
 
 	app_entry = _ALLOWED_APPS.get(key)
 	if not app_entry:
+		if category:
+			return f"I don't have a {category} configured."
 		return "I couldn't find that application."
 
 	executable = _resolve_executable(app_entry["candidates"])
 	if not executable:
+		if category:
+			return f"I can't find your {category}."
 		return "I couldn't find that application."
 
 	try:
 		subprocess.Popen([executable], start_new_session=True)
 	except FileNotFoundError:
+		if category:
+			return f"I can't find your {category}."
 		return "I couldn't find that application."
 	except OSError:
 		return "Opening failed safely."
 
+	if category:
+		return f"Opening your {category}."
 	return f"Opening {app_entry['label']}."

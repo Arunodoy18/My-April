@@ -50,8 +50,10 @@ This module only understands intent.
 
 from __future__ import annotations
 
-import re
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Dict, Optional, Tuple
+
+from cognition.normalize import normalize_text, remove_tokens, tokenize
+from memory.preferences import get_preference
 
 IntentResult = Tuple[Optional[str], Dict[str, str]]
 
@@ -68,29 +70,6 @@ _FILLER_WORDS: Tuple[str, ...] = (
 	"mind",
 )
 
-_TOKEN_SPLIT_RE = re.compile(r"\s+")
-
-
-def _normalize(text: str) -> str:
-	"""Sanitize raw text for downstream matching."""
-	if not isinstance(text, str):
-		return ""
-	return text.strip().lower()
-
-
-def _tokenize(text: str) -> Iterable[str]:
-	"""Split text into lowercase tokens without empty entries."""
-	if not text:
-		return ()
-	return tuple(token for token in _TOKEN_SPLIT_RE.split(text) if token)
-
-
-def _remove_fillers(tokens: Iterable[str]) -> Tuple[str, ...]:
-	"""Strip filler words while preserving order."""
-	filler_set = set(_FILLER_WORDS)
-	return tuple(token for token in tokens if token not in filler_set)
-
-
 def _detect_open_app(tokens: Tuple[str, ...]) -> Optional[IntentResult]:
 	"""Detect OPEN_APP intent and extract application payload."""
 	if not tokens:
@@ -104,24 +83,38 @@ def _detect_open_app(tokens: Tuple[str, ...]) -> Optional[IntentResult]:
 	if not remainder:
 		return None
 
+	# Handle "my category" patterns
+	if remainder[0] == "my" and len(remainder) > 1:
+		category = remainder[1]
+		app_name = get_preference(category)
+		if app_name:
+			return "OPEN_APP", {"app": app_name, "category": category}
+
+	# Handle direct category lookup
 	app_token = remainder[0]
 	if not app_token:
 		return None
 
+	# Try as preference category first
+	preferred_app = get_preference(app_token)
+	if preferred_app:
+		return "OPEN_APP", {"app": preferred_app, "category": app_token}
+
+	# Fallback to direct app name
 	return "OPEN_APP", {"app": app_token}
 
 
 def parse_intent(raw_text: str) -> IntentResult:
 	"""Convert free-form text into intent classification and payload."""
-	normalized = _normalize(raw_text)
+	normalized = normalize_text(raw_text)
 	if not normalized:
 		return None, {}
 
-	tokens = _tokenize(normalized)
+	tokens = tokenize(normalized)
 	if not tokens:
 		return None, {}
 
-	filtered_tokens = _remove_fillers(tokens)
+	filtered_tokens = remove_tokens(tokens, _FILLER_WORDS)
 	if not filtered_tokens:
 		return None, {}
 
