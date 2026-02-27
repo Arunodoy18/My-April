@@ -1,0 +1,16 @@
+# DAY 10 — Voice Interface Dependencies
+#
+# These are OPTIONAL. APRIL works without them.
+# Install only if you want voice input/output.
+
+# Text-to-Speech (offline, uses OS speech engine)
+pyttsx3>=2.90
+
+# Speech Recognition (supports multiple engines)
+SpeechRecognition>=3.10.0
+
+# Required for microphone access
+PyAudio>=0.2.13
+
+# Optional: For better offline STT
+# pocketsphinx>=5.0.0

@@ -112,8 +112,23 @@ def detect_social_phrase(text: str) -> tuple[bool, str]:
         if text_lower == greeting or text_lower.startswith(greeting + " "):
             return True, "greeting"
     
+    # Conversational check-ins
+    checkins = [
+        "how are you",
+        "how are you doing",
+        "how's it going",
+        "what's up",
+        "whats up",
+        "how do you do",
+        "you okay",
+        "you good",
+    ]
+    for checkin in checkins:
+        if checkin in text_lower:
+            return True, "checkin"
+    
     # Farewells
-    farewells = {"bye", "goodbye", "see you", "later"}
+    farewells = {"bye", "goodbye", "see you", "later", "good night"}
     for farewell in farewells:
         if text_lower == farewell or farewell in text_lower:
             return True, "farewell"
@@ -138,6 +153,14 @@ def get_social_response(phrase_type: str) -> str:
             return "Hello."
         else:  # calm
             return "Hello."
+    
+    elif phrase_type == "checkin":
+        if state == "friendly":
+            return "I'm doing great! Ready to help you. 😊"
+        elif state == "focused":
+            return "I'm operational."
+        else:  # calm
+            return "I'm doing well, thank you."
     
     elif phrase_type == "farewell":
         if state == "friendly":

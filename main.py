@@ -102,9 +102,13 @@ from core.personality import (
     apply_tone,
     set_emotional_state,
 )
+from core.voice import speak, listen, is_tts_available, is_stt_available
 from memory.action_history import record_action, detect_pattern
 
 _ALLOWED_APP_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-.")
+
+# Voice mode toggle - set to True to enable voice I/O
+VOICE_ENABLED = True
 
 # Confirmation state - session scoped, not persisted
 _pending_action = None  # type: Optional[Dict[str, Any]]
@@ -117,12 +121,20 @@ def _print_april(message: str) -> None:
     """Emit a response in APRIL's required voice with emotional tone."""
     toned_message = apply_tone(message, context="")
     print(f"APRIL: {toned_message}")
+    
+    # Speak if voice mode is enabled
+    if VOICE_ENABLED:
+        speak(toned_message)
 
 
 def _print_april_with_context(message: str, context: str) -> None:
     """Emit a response with specific emotional context."""
     toned_message = apply_tone(message, context=context)
     print(f"APRIL: {toned_message}")
+    
+    # Speak if voice mode is enabled
+    if VOICE_ENABLED:
+        speak(toned_message)
 
 
 def _sanitize_app_name(raw: str) -> Optional[str]:
@@ -306,17 +318,54 @@ def _handle_suggestion_response(response: str) -> None:
 def _loop() -> None:
     """Main command loop handling user input and routing."""
     global _pending_action, _suggested_action
+    
+    # Check voice capabilities on startup
+    if VOICE_ENABLED:
+        tts_ok = is_tts_available()
+        stt_ok = is_stt_available()
+        
+        if not tts_ok and not stt_ok:
+            print("WARNING: Voice mode enabled but no TTS/STT available. Install pyttsx3 and SpeechRecognition.")
+            print("Falling back to text-only mode.")
+        elif not tts_ok:
+            print("WARNING: TTS not available. Voice output disabled.")
+        elif not stt_ok:
+            print("WARNING: STT not available. Voice input disabled.")
+    
     _print_april("online. ready.")
 
     while True:
-        try:
-            command = input("You> ")
-        except (EOFError, KeyboardInterrupt):
-            _print_april("standing down.")
-            break
-        except Exception:
-            _print_april("input channel error.")
-            break
+        command = None
+        
+        # Try voice input first if enabled
+        if VOICE_ENABLED and is_stt_available():
+            print("You> 🎤 [Speak now...]", end="", flush=True)
+            voice_text = listen()
+            
+            if voice_text:
+                command = voice_text
+                print(f"\rYou> {command}")  # Echo what was heard
+            else:
+                # Voice failed, fall back to text input
+                print("\r", end="")  # Clear the listening prompt
+                try:
+                    command = input("You> [Not heard, type instead] ")
+                except (EOFError, KeyboardInterrupt):
+                    _print_april("standing down.")
+                    break
+                except Exception:
+                    _print_april("input channel error.")
+                    break
+        else:
+            # Standard text input
+            try:
+                command = input("You> ")
+            except (EOFError, KeyboardInterrupt):
+                _print_april("standing down.")
+                break
+            except Exception:
+                _print_april("input channel error.")
+                break
 
         command = command.strip()
         if not command:
@@ -328,11 +377,13 @@ def _loop() -> None:
             _print_april("shutting down.")
             break
 
-        # Detect social phrases (greetings, farewells, positive feedback)
+        # Detect social phrases (greetings, farewells, positive feedback, check-ins)
         is_social, phrase_type = detect_social_phrase(command)
         if is_social:
             if phrase_type == "greeting":
                 set_emotional_state("calm")
+            elif phrase_type == "checkin":
+                set_emotional_state("friendly")
             elif phrase_type == "positive":
                 set_emotional_state("friendly")
             
